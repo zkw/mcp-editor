@@ -13,9 +13,9 @@ import { AnchorRewriteError, containsAnchorPlaceholder, foldSource, matchAnchorT
 
 function getProjectRoot(): string {
 	const raw = process.env.WORKSPACE_FOLDER_PATHS
-			?? process.env.WORKSPACE_FOLDER
-			?? process.env.PROJECT_ROOT
-			?? process.env.CURSOR_WORKSPACE;
+		?? process.env.WORKSPACE_FOLDER
+		?? process.env.PROJECT_ROOT
+		?? process.env.CURSOR_WORKSPACE;
 
 	if (typeof raw === "string" && raw.length > 0) {
 		const candidatePath = raw.split(",")[0].trim();
