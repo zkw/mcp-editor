@@ -32,10 +32,10 @@ export function createServer(): McpServer {
 
 	server.tool(
 		"read",
-		"Read a file using anchor-folding semantics. See src/READ.md for exact usage, examples, and template rules.",
+		"Read a file using anchor-folding semantics. If file is relative, absoluteDir is required. See src/READ.md for exact usage, examples, and template rules.",
 		{
 			file: z.string().describe("Target file path"),
-			absoluteDir: z.string().optional().describe("Optional absolute directory to resolve relative file paths from."),
+			absoluteDir: z.string().optional().describe("Absolute directory to resolve relative file paths from. Required when file path is relative."),
 			template: z.string().optional().describe("Optional exact anchor template using a single '......' placeholder with non-empty prefix and suffix."),
 		},
 		async ({ file: filePath, absoluteDir, template }) => {
@@ -63,10 +63,10 @@ export function createServer(): McpServer {
 
 	server.tool(
 		"write",
-		"Write a file with optional anchor-completion placeholders. See src/WRITE.md for exact usage, examples, and anchor rules.",
+		"Write a file with optional anchor-completion placeholders. If file is relative, absoluteDir is required. See src/WRITE.md for exact usage, examples, and anchor rules.",
 		{
 			file: z.string().describe("Target file path"),
-			absoluteDir: z.string().optional().describe("Optional absolute directory to resolve relative file paths from."),
+			absoluteDir: z.string().optional().describe("Absolute directory to resolve relative file paths from. Required when file path is relative."),
 			template: z.string().describe("Template or file content to write. Include exact source anchors around '......' for anchor-based rewriting."),
 		},
 		async ({ file: filePath, absoluteDir, template }) => {
