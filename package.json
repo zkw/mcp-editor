@@ -1,6 +1,6 @@
 {
   "name": "mcp-anchor-shell",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Minimal MCP shell stub for the new anchor-completion editor design.",
   "type": "module",
   "main": "src/index.ts",

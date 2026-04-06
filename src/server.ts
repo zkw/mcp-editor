@@ -1,84 +1,119 @@
 /**
  * MCP server shell.
  *
- * This repository is deprecated. All original hashline logic has been replaced
- * by a minimal stub implementation. Refer to design/AGENTS.md for the new
- * anchor-completion design.
+ * This server implements the anchor-completion editing protocol described in AGENTS.md.
+ * It supports reading files and writing updates with strict `......` placeholders.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import * as fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import * as path from "node:path";
+import { AnchorRewriteError, containsAnchorPlaceholder, foldSource, matchAnchorTemplate, rewriteWithAnchors } from "./anchor.js";
+
+function getProjectRoot(): string {
+	const raw = process.env.WORKSPACE_FOLDER_PATHS
+			?? process.env.WORKSPACE_FOLDER
+			?? process.env.PROJECT_ROOT
+			?? process.env.CURSOR_WORKSPACE;
+
+	if (typeof raw === "string" && raw.length > 0) {
+		const candidatePath = raw.split(",")[0].trim();
+		if (candidatePath.length > 0) {
+			const resolved = path.resolve(candidatePath);
+			if (existsSync(resolved)) {
+				console.log(`MCP Project Root: ${resolved}`);
+				return resolved;
+			}
+			console.warn(`MCP Project Root candidate does not exist: ${resolved}`);
+		}
+	}
+
+	const fallback = path.resolve(".");
+	console.warn(`MCP Project Root fallback: ${fallback}`);
+	return fallback;
+}
+
+const PROJECT_ROOT = getProjectRoot();
 
 function resolvePath(filePath: string): string {
-    return path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
+	return path.isAbsolute(filePath) ? filePath : path.resolve(PROJECT_ROOT, filePath);
 }
 
 export function createServer(): McpServer {
-    const server = new McpServer({
-        name: "mcp-shell-server",
-        version: "0.1.0",
-    });
+	const server = new McpServer({
+		name: "mcp-anchor-server",
+		version: "0.2.0",
+	});
 
-    server.tool(
-        "read",
-        "Stub read tool: returns plain file content or directory listing.",
-        {
-            path: z.string().describe("Path to read"),
-            offset: z.number().optional().describe("1-indexed start line"),
-            limit: z.number().optional().describe("Maximum lines to return"),
-            plain: z.boolean().optional().describe("Return plain numbered lines instead of stub formatting"),
-        },
-        async ({ path: filePath, offset, limit }) => {
-            const target = resolvePath(filePath);
-            try {
-                const raw = await Bun.file(target).text();
-                const lines = raw.split("\n");
-                const start = Math.max(1, offset ?? 1);
-                const end = Math.min(lines.length, start - 1 + (limit ?? lines.length));
-                const payload = lines.slice(start - 1, end);
-                const text = payload.map((line, index) => `${start + index}|${line}`).join("\n");
-                return { content: [{ type: "text", text }] };
-            } catch (err) {
-                return {
-                    content: [{ type: "text", text: `Stub read error: ${err instanceof Error ? err.message : String(err)}` }],
-                    isError: true,
-                };
-            }
-        },
-    );
+	server.tool(
+		"read",
+		"Read a file using anchor-folding semantics. See src/READ.md for exact usage, examples, and template rules.",
+		{
+			file: z.string().describe("Target file path"),
+			template: z.string().optional().describe("Optional exact anchor template using a single '......' placeholder with non-empty prefix and suffix."),
+		},
+		async ({ file: filePath, template }) => {
+			const target = resolvePath(filePath);
+			try {
+				const stat = await fs.stat(target);
+				if (stat.isDirectory()) {
+					return {
+						content: [{ type: "text", text: `Read error: ${filePath} is a directory, expected a file.` }],
+						isError: true,
+					};
+				}
 
-    server.tool(
-        "write",
-        "Stub write tool: writes content to disk or handles edit-like operations in this deprecated shell.",
-        {
-            path: z.string().describe("Target file path"),
-            content: z.string().optional().describe("File contents to write"),
-            edits: z.array(z.any()).optional().describe("Optional edit operations"),
-        },
-        async ({ path: filePath, content, edits }) => {
-            if (content != null) {
-                const target = resolvePath(filePath);
-                try {
-                    await Bun.write(target, content);
-                    return { content: [{ type: "text", text: `Stub write wrote ${filePath}` }] };
-                } catch (err) {
-                    return {
-                        content: [{ type: "text", text: `Stub write error: ${err instanceof Error ? err.message : String(err)}` }],
-                        isError: true,
-                    };
-                }
-            }
-            if (edits != null) {
-                return {
-                    content: [{ type: "text", text: "Stub write received edit operations. edit_file functionality is intentionally unimplemented in this deprecated shell." }],
-                };
-            }
-            return {
-                content: [{ type: "text", text: "Stub write requires either content or edits." }],
-                isError: true,
-            };
-        },
-    );
+				const raw = await Bun.file(target).text();
+				const folded = template == null ? foldSource(raw) : matchAnchorTemplate(raw, template);
+				return { content: [{ type: "text", text: folded }] };
+			} catch (err) {
+				return {
+					content: [{ type: "text", text: `Read error: ${err instanceof Error ? err.message : String(err)}` }],
+					isError: true,
+				};
+			}
+		},
+	);
 
-    return server;
+	server.tool(
+		"write",
+		"Write a file with optional anchor-completion placeholders. See src/WRITE.md for exact usage, examples, and anchor rules.",
+		{
+			file: z.string().describe("Target file path"),
+			template: z.string().describe("Template or file content to write. Include exact source anchors around '......' for anchor-based rewriting."),
+		},
+		async ({ file: filePath, template }) => {
+			const target = resolvePath(filePath);
+
+			try {
+				if (containsAnchorPlaceholder(template)) {
+					if (!(await Bun.file(target).exists())) {
+						return {
+							content: [{ type: "text", text: `Anchor write failed: source file does not exist at ${filePath}` }],
+							isError: true,
+						};
+					}
+
+					const original = await Bun.file(target).text();
+					const transformed = rewriteWithAnchors(original, template);
+					await Bun.write(target, transformed);
+					return {
+						content: [{ type: "text", text: `Anchor write applied to ${filePath}.` }],
+					};
+				}
+
+				await Bun.write(target, template);
+				return { content: [{ type: "text", text: `Wrote ${filePath}.` }] };
+			} catch (err) {
+				const message = err instanceof AnchorRewriteError ? err.message : err instanceof Error ? err.message : String(err);
+				return {
+					content: [{ type: "text", text: `Write error: ${message}` }],
+					isError: true,
+				};
+			}
+		},
+	);
+
+	return server;
 }
