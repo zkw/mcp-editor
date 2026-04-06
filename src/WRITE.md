@@ -5,6 +5,22 @@
 
 ## 1. 直接写入
 
+### 1.1 使用 `absoluteDir`
+
+如果 `file` 是相对路径，则必须传入 `absoluteDir` 来指定解析基准目录。
+
+示例：
+```json
+{
+  "file": "src/example.ts",
+  "absoluteDir": "/abs/path/to/project",
+  "template": "console.log(\"Hello world\");\n"
+}
+```
+
+如果 `file` 已是绝对路径，则 `absoluteDir` 会被忽略。
+
+
 当 `template` 中不包含 `......` 时，工具会直接把 `template` 的内容写入目标文件，覆盖原文件内容。
 
 ### 示例

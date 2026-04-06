@@ -2,6 +2,21 @@
 
 ## 1. 默认读取（只传 `file`）
 
+### 1.1 使用 `absoluteDir`
+
+如果 `file` 是相对路径，则必须传入 `absoluteDir` 来指定解析基准目录。
+
+示例：
+```json
+{
+  "file": "src/example.ts",
+  "absoluteDir": "/abs/path/to/project"
+}
+```
+
+`file` 将相对于该绝对目录解析；如果 `file` 已是绝对路径，则 `absoluteDir` 会被忽略。
+
+
 当你只提供 `file` 参数时，工具会返回文件内容的“折叠视图”：
 - 仅保留代码骨架和括号边界
 - 用 `......` 折叠较大的实现块
