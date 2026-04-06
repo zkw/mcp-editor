@@ -1,11 +1,11 @@
 {
-  "name": "mcp-hashline-edit-server",
+  "name": "mcp-anchor-shell",
   "version": "0.2.0",
-  "description": "MCP server providing hashline-based file editing tools — line-addressed edits using content hashes for integrity verification",
+  "description": "Minimal MCP shell stub for the new anchor-completion editor design.",
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "mcp-hashline-edit-server": "src/index.ts"
+    "mcp-anchor-shell": "src/index.ts"
   },
   "license": "MIT",
   "author": "Submerisble",
@@ -13,19 +13,28 @@
     "type": "git",
     "url": "https://github.com/Submerisble/mcp-hashline-edit-server"
   },
-  "keywords": ["mcp", "hashline", "editor", "coding-agent", "model-context-protocol"],
-  "files": ["src", "README.md"],
+  "keywords": [
+    "mcp",
+    "anchor-completion",
+    "stub",
+    "shell",
+    "model-context-protocol"
+  ],
+  "files": [
+    "src",
+    "README.md",
+    "design"
+  ],
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch src/index.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
-    "diff": "^7.0.0"
+    "@modelcontextprotocol/sdk": "latest",
+    "zod": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/diff": "^7.0.2",
-    "typescript": "^5.9.3"
+    "typescript": "latest"
   }
 }
