@@ -5,21 +5,17 @@
 
 ## 1. 直接写入
 
-### 1.1 使用 `absoluteDir`
+### 1.1 参数说明
 
-如果 `file` 是相对路径，则必须传入 `absoluteDir` 来指定解析基准目录。
+你必须用 `absolutePath` 传入绝对路径。
 
 示例：
 ```json
 {
-  "file": "src/example.ts",
-  "absoluteDir": "/abs/path/to/project",
+  "absolutePath": "/abs/path/to/project/src/example.ts",
   "template": "console.log(\"Hello world\");\n"
 }
 ```
-
-如果 `file` 已是绝对路径，则 `absoluteDir` 会被忽略。
-
 
 当 `template` 中不包含 `......` 时，工具会直接把 `template` 的内容写入目标文件，覆盖原文件内容。
 
@@ -27,7 +23,7 @@
 
 ```json
 {
-  "file": "src/example.ts",
+  "absolutePath": "/abs/path/to/project/src/example.ts",
   "template": "console.log('Hello world');\n"
 }
 ```
@@ -68,7 +64,7 @@ function calculateTax(amount: number) {
 
 ```json
 {
-  "file": "src/example.ts",
+  "absolutePath": "/abs/path/to/project/src/example.ts",
   "template": "function initSystem() {\n......\n}\n\nfunction calculateTax(amount: number) {\n    const taxRate = 0.08;\n    return amount * taxRate;\n}"
 }
 ```

@@ -1,23 +1,19 @@
 `read` 工具用于读取文件内容，并在需要时对长文件做结构化折叠，方便快速查看文件骨架。
 
-## 1. 默认读取（只传 `file`）
+## 1. 默认读取
 
-### 1.1 使用 `absoluteDir`
+### 1.1 参数说明
 
-如果 `file` 是相对路径，则必须传入 `absoluteDir` 来指定解析基准目录。
+你必须用 `absolutePath` 传入绝对路径。
 
 示例：
 ```json
 {
-  "file": "src/example.ts",
-  "absoluteDir": "/abs/path/to/project"
+  "absolutePath": "/abs/path/to/project/src/example.ts"
 }
 ```
 
-`file` 将相对于该绝对目录解析；如果 `file` 已是绝对路径，则 `absoluteDir` 会被忽略。
-
-
-当你只提供 `file` 参数时，工具会返回文件内容的“折叠视图”：
+当你只提供 `absolutePath` 参数时，工具会返回文件内容的“折叠视图”：
 - 仅保留代码骨架和括号边界
 - 用 `......` 折叠较大的实现块
 - 结果仍然保持可读，并可作为后续 `write` 的锚点输入
@@ -33,7 +29,7 @@
 请求参数：
 ```json
 {
-  "file": "src/example.ts"
+  "absolutePath": "/abs/path/to/project/src/example.ts"
 }
 ```
 
@@ -50,7 +46,7 @@ const data = [
 
 ## 2. 指定 `template` 读取特定块
 
-当你同时提供 `file` 和 `template` 时，工具会把 `template` 中的 `......` 当成锚点占位符，返回该占位符对应的源文件块。
+当你同时提供 `absolutePath` 和 `template` 时，工具会把 `template` 中的 `......` 当成锚点占位符，返回该占位符对应的源文件块。
 
 ### 规则
 
@@ -82,7 +78,7 @@ function calculateTax(amount: number) {
 请求参数：
 ```json
 {
-  "file": "src/example.ts",
+  "absolutePath": "/abs/path/to/project/src/example.ts",
   "template": "function calculateTax(amount: number) {\n......\n}"
 }
 ```
