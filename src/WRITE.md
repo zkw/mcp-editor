@@ -1,86 +1,63 @@
-`write` 工具用于写入或更新文件内容。它支持两种方式：
+`write` 工具用于写入或更新文件内容。它支持两种模式：全量覆盖与基于 `......` 占位符的局部更新。
 
-- 直接写入完整内容
-- 使用 `......` 占位符保留源文件中未修改的部分
+> **核心原则**：请优先使用本工具进行代码变更。严禁使用 Bash 工具（如 `sed`、`echo`、`cat`）修改源码，以保障写入一致性。
 
-> 重要：请优先使用本工具提供的 `write` 接口进行文件写入或修改，避免直接使用 Shell 命令（如 `python`、`cat > file`、`sed` 等）对工作区文件进行读写。这样可以保证锚点补全逻辑和写入一致性。
+## 1. 全量覆盖（不含占位符）
+当 `template` 中不包含 `......` 时，工具将执行全量写入，直接覆盖目标文件。适用于新建文件或几行代码的极小文件。
+* **absolutePath**: 目标文件的绝对路径。
+* **template**: 完整的文件内容。
 
-## 1. 直接写入
+## 2. 锚点局部更新（包含 `......`）
+对于中大型文件，你无需重新生成未修改的代码。使用 6 个连续半角句号 `......` 作为占位符，工具会自动从源文件中提取并补全省略的内容。
 
-### 1.1 参数说明
+### 2.1 占位符使用法则（极度严格）
+为了让工具精准定位你的修改位置，你必须在 `......` 的上方和下方提供**原封不动**的上下文代码（即“锚点”）。
 
-你必须用 `absolutePath` 传入绝对路径。
+1.  **长度底线（$\ge$ 80字符）**：`......` 的紧邻上方和下方，**必须各自保留至少 80 个字符（约 3-4 行）的原始代码**。如果你提供的原始上下文过短，工具将拒绝执行。
+2.  **100% 像素级一致**：作为锚点的原始代码，其缩进、空格、换行符必须与源文件**完全相同**。任何微小的排版偏差（例如将源文件的 4 个空格改成了 Tab，或擅自删除了空行），都会导致匹配失败并报错。
+3.  **全局唯一**：你保留的上下文片段必须在整个文件中是唯一的。避免仅使用 `{`、`}` 或 `return;` 这种随处可见的样板代码。
+4.  **格式固定**：只能是 `......`（6个点），禁止包含多余的点或使用全角标点。在一个文件中可以使用多个 `......` 进行多处修改。
 
-示例：
-```json
-{
-  "absolutePath": "/abs/path/to/project/src/example.ts",
-  "template": "console.log(\"Hello world\");\n"
-}
-```
+### 2.2 正确的修改范例
 
-当 `template` 中不包含 `......` 时，工具会直接把 `template` 的内容写入目标文件，覆盖原文件内容。
+**假设源文件（`src/tax.ts`）如下：**
+```typescript
+import { Logger } from "./logger";
 
-### 示例
-
-```json
-{
-  "absolutePath": "/abs/path/to/project/src/example.ts",
-  "template": "console.log('Hello world');\n"
-}
-```
-
-## 2. 锚点补全写入（包含 `......`）
-
-当 `template` 含有 `......` 时，工具会把它当作“从源文件补全未改部分”的占位符。
-
-### 工作方式
-
-- `template` 中的每个 `......` 表示“保留源文件中此处的原始文本”。
-- 工具会根据前后锚点，从源文件中提取原始内容并填入 `......`。
-- 这让你只需提交实际变更，而不必复制整个文件。
-
-### 规则
-
-- `......` 必须是 6 个半角句号
-- 每个 `......` 前后必须都有非空锚点文本
-- 前后锚点必须与源文件完全一致
-- 每个 `prefix......suffix` 组合在源文件中必须唯一
-- 模板中可以使用多个 `......`
-
-### 示例
-
-假设源文件包含：
-```ts
-function initSystem() {
-    setupLogging();
+export function initSystem() {
+    Logger.info("System initializing...");
+    connectDatabase();
 }
 
-function calculateTax(amount: number) {
+export function calculateTax(amount: number) {
     const taxRate = 0.05;
     return amount * taxRate;
 }
-```
 
-你只想修改 `calculateTax` 的税率：
-
-```json
-{
-  "absolutePath": "/abs/path/to/project/src/example.ts",
-  "template": "function initSystem() {\n......\n}\n\nfunction calculateTax(amount: number) {\n    const taxRate = 0.08;\n    return amount * taxRate;\n}"
+export function cleanup() {
+    Logger.info("Cleanup...");
 }
 ```
 
-工具会保留 `initSystem` 中的原始实现，只更新 `calculateTax` 里指定的改动。
+**你的任务**：仅将 `taxRate = 0.05` 修改为 `0.08`。
 
-## 使用建议
+**正确的工具调用：**
+```json
+{
+  "absolutePath": "/abs/path/src/tax.ts",
+  "template": "export function initSystem() {\n    Logger.info(\"System initializing...\");\n    connectDatabase();\n}\n\n......\n\nexport function calculateTax(amount: number) {\n    const taxRate = 0.08;\n    return amount * taxRate;\n}\n\nexport function cleanup() {\n    Logger.info(\"Cleanup...\");\n}\n"
+}
+```
+*💡 解析：模板中包含了你需要修改的目标函数（`calculateTax`），并在 `......` 两侧保留了足够长的、一字不差的原始函数（`initSystem` 和 `cleanup`）作为定位锚点。*
 
-- 用完整函数声明、独特变量名或注释作为锚点；
-- 避免只用 `{`、`}`、`return` 这类通用文本作为锚点；
-- 如果模板出现歧义，扩展前后锚点的上下文。
+### 2.3 错误排查指南
 
-## 结果说明
+如果工具返回错误，请根据以下情况立即自我修正：
 
-- 如果 `template` 包含 `......`，写入时会先补全占位符，再覆盖文件。
-- 如果 `template` 没有 `......`，写入内容会直接覆盖文件。
-- 出现错误时，工具会返回错误信息并停止写入。
+* **报错 `Anchor length < 80 characters` (上下文不足)**：
+    * **原因 1**：你提供的原始代码太短。
+    * **原因 2（最常见）**：你在原始代码中**擅自修改了缩进或空格**，导致工具在逐字比对时提早中断，截取到的有效匹配长度不足 80 字符。
+    * **对策**：请重新读取源文件，确保 `......` 附近的原始代码一字不差（包括所有空白字符），并扩大上下文范围。
+* **报错 `Pattern ambiguity` 或 `not unique` (存在歧义)**：
+    * **原因**：你保留的上下文特征太弱（例如只保留了 `    }\n}`），在源文件中存在多处相同的片段，工具不知道该替换哪一处。
+    * **对策**：增加更具辨识度的业务逻辑代码作为上下文（如带有特定变量名或常量的行）。

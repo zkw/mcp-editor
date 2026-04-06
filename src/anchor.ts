@@ -1,5 +1,5 @@
 const PLACEHOLDER = "......";
-const MAX_ANCHOR_SAMPLES = 5;
+const MIN_ANCHOR_LENGTH = 80;
 
 export class AnchorRewriteError extends Error {
 	constructor(message: string) {
@@ -8,175 +8,127 @@ export class AnchorRewriteError extends Error {
 	}
 }
 
-export function buildLineOffsets(text: string): number[] {
-	const offsets: number[] = [0];
-	for (let idx = 0; idx < text.length; idx++) {
-		if (text[idx] === "\n" && idx + 1 < text.length) {
-			offsets.push(idx + 1);
-		}
-	}
-	return offsets;
-}
-
-export function getLineNumber(lineOffsets: number[], index: number): number {
-	let low = 0;
-	let high = lineOffsets.length - 1;
-	while (low <= high) {
-		const mid = (low + high) >> 1;
-		if (lineOffsets[mid] <= index) {
-			low = mid + 1;
-		} else {
-			high = mid - 1;
-		}
-	}
-	return Math.max(1, high + 1);
-}
-
-export function getLineText(text: string, lineOffsets: number[], lineNumber: number): string {
-	const start = lineOffsets[lineNumber - 1];
-	const end = lineNumber < lineOffsets.length ? lineOffsets[lineNumber] : text.length;
-	let line = text.slice(start, end);
-	if (line.endsWith("\n")) {
-		line = line.slice(0, -1);
-	}
-	if (line.endsWith("\r")) {
-		line = line.slice(0, -1);
-	}
-	return line;
-}
-
 export function containsAnchorPlaceholder(text: string): boolean {
 	return text.includes(PLACEHOLDER);
 }
 
-export function findAllOccurrences(text: string, pattern: string): number[] {
-	const positions: number[] = [];
-	if (pattern.length === 0) {
-		return positions;
+function buildLPS(pattern: string): Int32Array {
+	const m = pattern.length;
+	const lps = new Int32Array(m);
+	let len = 0;
+	for (let i = 1; i < m; i++) {
+		while (len > 0 && pattern[i] !== pattern[len]) {
+			len = lps[len - 1];
+		}
+		if (pattern[i] === pattern[len]) {
+			len++;
+		}
+		lps[i] = len;
 	}
-	let index = 0;
-	while (true) {
-		const found = text.indexOf(pattern, index);
-		if (found === -1) break;
-		positions.push(found);
-		index = found + 1;
-	}
-	return positions;
+	return lps;
 }
 
-function findFirstAtOrAfter(sorted: number[], target: number): number | undefined {
-	let low = 0;
-	let high = sorted.length - 1;
-	while (low <= high) {
-		const mid = (low + high) >> 1;
-		if (sorted[mid] < target) {
-			low = mid + 1;
-		} else {
-			high = mid - 1;
+function findLongestPrefixMatch(pattern: string, text: string): { length: number; positions: number[] } {
+	if (pattern.length === 0 || text.length === 0) {
+		return { length: 0, positions: [] };
+	}
+
+	const m = pattern.length;
+	const lps = buildLPS(pattern);
+	let maxLen = 0;
+	let positions: number[] = [];
+	let j = 0;
+
+	for (let i = 0; i < text.length; i++) {
+		while (j > 0 && text[i] !== pattern[j]) {
+			j = lps[j - 1];
+		}
+		if (text[i] === pattern[j]) {
+			j++;
+		}
+
+		if (j > maxLen) {
+			maxLen = j;
+			positions = [i - j + 1];
+		} else if (j === maxLen && j > 0) {
+			positions.push(i - j + 1);
+		}
+
+		if (j === m) {
+			j = lps[j - 1];
 		}
 	}
-	return low < sorted.length ? sorted[low] : undefined;
+
+	return { length: maxLen, positions };
 }
 
-function validateSinglePlaceholder(template: string): [string, string] {
-	const segments = template.split(PLACEHOLDER);
-	if (segments.length !== 2) {
-		throw new AnchorRewriteError(
-			`Template must contain exactly one anchor placeholder '${PLACEHOLDER}'.`,
-		);
+function reverseString(str: string): string {
+	let res = "";
+	for (let i = str.length - 1; i >= 0; i--) {
+		res += str[i];
 	}
-
-	const [prefix, suffix] = segments;
-	requireNonEmptyAnchor(prefix, suffix);
-	return [prefix, suffix];
-}
-
-function buildCandidates(prefixPositions: number[], suffixPositions: number[], prefixLength: number) {
-	const candidates: Array<{ prefixStart: number; suffixStart: number }> = [];
-	for (const prefixStart of prefixPositions) {
-		const prefixEnd = prefixStart + prefixLength;
-		const suffixStart = findFirstAtOrAfter(suffixPositions, prefixEnd);
-		if (suffixStart !== undefined) {
-			candidates.push({ prefixStart, suffixStart });
-		}
-	}
-	return candidates;
-}
-
-function buildAnchorError(
-	prefix: string,
-	suffix: string,
-	source: string,
-	prefixPositions: number[],
-	suffixPositions: number[],
-	candidatesLength: number,
-	contextLabel: string,
-): AnchorRewriteError {
-	const lineOffsets = buildLineOffsets(source);
-	const prefixInfo = describeMatches(prefix, source, lineOffsets, prefixPositions);
-	const suffixInfo = describeMatches(suffix, source, lineOffsets, suffixPositions);
-	const problem = candidatesLength === 0 ? "cannot be resolved" : "is not unique";
-	return new AnchorRewriteError(
-		`[System Error] Pattern ambiguity detected.\n` +
-		`The prefix "${prefix}" and suffix "${suffix}" combination ${problem}.\n\n` +
-		`${prefixInfo}\n\n${suffixInfo}\n\n` +
-		`Action Required: Please provide longer, more specific context for the ${contextLabel} ` +
-		`so the pattern matches exactly ONE block in the file.`,
-	);
+	return res;
 }
 
 function ensureUniqueAnchorMatch(
 	source: string,
-	prefix: string,
-	suffix: string,
+	sourceRev: string,
+	prefixSeg: string,
+	suffixSeg: string,
 	contextLabel: string,
-): { prefixStart: number; suffixStart: number } {
-	const prefixPositions = findAllOccurrences(source, prefix);
-	const suffixPositions = findAllOccurrences(source, suffix);
-
-	if (prefixPositions.length === 0) {
+): { prefixEnd: number; suffixStart: number } {
+	// 1. Find longest matching suffix of prefixSeg
+	const prefixSegRev = reverseString(prefixSeg);
+	const pm = findLongestPrefixMatch(prefixSegRev, sourceRev);
+	
+	if (pm.length < MIN_ANCHOR_LENGTH) {
 		throw new AnchorRewriteError(
-			`[System Error] Pattern ambiguity detected.\n` +
-			`The prefix "${prefix}" does not exist in the source file. ` +
-			`Please use exact source text for the ${contextLabel}.`,
+			`[System Error] Prefix anchor for ${contextLabel} is too short (${pm.length} characters matched, minimum ${MIN_ANCHOR_LENGTH} required).\n` +
+			`The longest matching part was: "${prefixSeg.slice(-pm.length)}"\n` +
+			`Action Required: Please provide a longer, exact code prefix before the "${PLACEHOLDER}" placeholder.`
 		);
 	}
-	if (suffixPositions.length === 0) {
+	if (pm.positions.length > 1) {
 		throw new AnchorRewriteError(
-			`[System Error] Pattern ambiguity detected.\n` +
-			`The suffix "${suffix}" does not exist in the source file. ` +
-			`Please use exact source text for the ${contextLabel}.`,
+			`[System Error] Prefix anchor for ${contextLabel} is not unique (${pm.positions.length} occurrences found).\n` +
+			`The longest matching part was: "${prefixSeg.slice(-pm.length)}"\n` +
+			`Action Required: Please provide more specific context surrounding this code block.`
 		);
 	}
 
-	const candidates = buildCandidates(prefixPositions, suffixPositions, prefix.length);
-	if (candidates.length !== 1) {
-		throw buildAnchorError(prefix, suffix, source, prefixPositions, suffixPositions, candidates.length, contextLabel);
-	}
-	return candidates[0];
-}
+	// Calculate absolute end position of prefix anchor in source
+	const prefixAnchorStart = source.length - pm.positions[0] - pm.length;
+	const prefixAnchorEnd = prefixAnchorStart + pm.length;
 
-function describeMatches(label: string, source: string, lineOffsets: number[], positions: number[]): string {
-	if (positions.length === 0) {
-		return `Found "${label}" at no locations.`;
-	}
-	const count = Math.min(MAX_ANCHOR_SAMPLES, positions.length);
-	const lines = positions.slice(0, count).map((pos) => {
-		const lineNumber = getLineNumber(lineOffsets, pos);
-		const excerpt = getLineText(source, lineOffsets, lineNumber);
-		return `- Line ${lineNumber}: '${excerpt}'`;
-	});
-	const more = positions.length > count ? `\n- ...and ${positions.length - count} more occurrences` : "";
-	return [`Found "${label}" at the following lines:`, ...lines, more].filter(Boolean).join("\n");
-}
+	// 2. Find longest matching prefix of suffixSeg
+	const sm = findLongestPrefixMatch(suffixSeg, source);
 
-function requireNonEmptyAnchor(prefix: string, suffix: string): void {
-	if (prefix.length === 0 || suffix.length === 0) {
+	if (sm.length < MIN_ANCHOR_LENGTH) {
 		throw new AnchorRewriteError(
-			`Anchor placeholder must be framed by non-empty prefix and suffix. ` +
-			`Each "......" must be surrounded by exact source anchors on both sides.`,
+			`[System Error] Suffix anchor for ${contextLabel} is too short (${sm.length} characters matched, minimum ${MIN_ANCHOR_LENGTH} required).\n` +
+			`The longest matching part was: "${suffixSeg.slice(0, sm.length)}"\n` +
+			`Action Required: Please provide a longer, exact code suffix after the "${PLACEHOLDER}" placeholder.`
 		);
 	}
+	if (sm.positions.length > 1) {
+		throw new AnchorRewriteError(
+			`[System Error] Suffix anchor for ${contextLabel} is not unique (${sm.positions.length} occurrences found).\n` +
+			`The longest matching part was: "${suffixSeg.slice(0, sm.length)}"\n` +
+			`Action Required: Please provide more specific context surrounding this code block.`
+		);
+	}
+
+	const suffixAnchorStart = sm.positions[0];
+
+	if (suffixAnchorStart < prefixAnchorEnd) {
+		throw new AnchorRewriteError(
+			`[System Error] Anchor order violation for ${contextLabel}.\n` +
+			`The suffix anchor occurs before the prefix anchor in the source file.\n` +
+			`Prefix End: ${prefixAnchorEnd}, Suffix Start: ${suffixAnchorStart}`
+		);
+	}
+
+	return { prefixEnd: prefixAnchorEnd, suffixStart: suffixAnchorStart };
 }
 
 export function rewriteWithAnchors(source: string, anchorText: string): string {
@@ -189,14 +141,14 @@ export function rewriteWithAnchors(source: string, anchorText: string): string {
 		throw new AnchorRewriteError("Malformed anchor content: expected at least one anchor placeholder.");
 	}
 
+	const sourceRev = reverseString(source);
 	const replacements: string[] = [];
 	for (let index = 0; index < segments.length - 1; index++) {
 		const prefix = segments[index];
 		const suffix = segments[index + 1];
-		requireNonEmptyAnchor(prefix, suffix);
 
-		const { prefixStart, suffixStart } = ensureUniqueAnchorMatch(source, prefix, suffix, "anchor");
-		replacements.push(source.slice(prefixStart + prefix.length, suffixStart));
+		const { prefixEnd, suffixStart } = ensureUniqueAnchorMatch(source, sourceRev, prefix, suffix, `anchor #${index + 1}`);
+		replacements.push(source.slice(prefixEnd, suffixStart));
 	}
 
 	let result = "";
