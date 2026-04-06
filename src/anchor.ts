@@ -373,6 +373,8 @@ export function foldSource(source: string): string {
 	const bracketCandidates = nodes.filter((node) => node.sameTypeChildren === 0).map(createBracketCandidate);
 	const rawCandidates = buildRawCandidates(source, nodes);
 	candidateQueue.push(...bracketCandidates, ...rawCandidates);
+	
+	// 仍保留排序供底层 addCandidate 的结构稳定性需要
 	candidateQueue.sort(sortCandidates);
 
 	let foldedSource = source;
@@ -393,8 +395,45 @@ export function foldSource(source: string): string {
 		}
 	}
 
+	// 初始温度设定与退火速率
+	let temperature = candidateQueue.length > 0 ? Math.max(...candidateQueue.map(c => c.length)) : 1000;
+	if (temperature <= 0) temperature = 1;
+	const coolingRate = 0.95;
+
 	while (candidateQueue.length > 0 && estimateTokenCount(foldedSource) > MAX_TOKEN_THRESHOLD) {
-		const candidate = candidateQueue.shift();
+		// Softmax 退火降温
+		temperature = Math.max(1, temperature * coolingRate);
+
+		let maxLen = 0;
+		for (let i = 0; i < candidateQueue.length; i++) {
+			if (candidateQueue[i].length > maxLen) {
+				maxLen = candidateQueue[i].length;
+			}
+		}
+
+		// 计算带温度的长度指数权重分布
+		let sumWeights = 0;
+		const weights = new Float64Array(candidateQueue.length);
+		for (let i = 0; i < candidateQueue.length; i++) {
+			// 防止数值溢出，用 (length - max) 平移归一化
+			const w = Math.exp((candidateQueue[i].length - maxLen) / temperature);
+			weights[i] = w;
+			sumWeights += w;
+		}
+
+		// 根据概率分布采样
+		let r = Math.random() * sumWeights;
+		let selectedIdx = candidateQueue.length - 1; // 兜底防止精度穿透
+		for (let i = 0; i < candidateQueue.length; i++) {
+			r -= weights[i];
+			if (r <= 0) {
+				selectedIdx = i;
+				break;
+			}
+		}
+
+		const candidate = candidateQueue.splice(selectedIdx, 1)[0];
+
 		if (!candidate || candidate.folded) {
 			continue;
 		}
@@ -439,6 +478,7 @@ export function foldSource(source: string): string {
 
 	return foldedSource;
 }
+
 function describeMatches(label: string, source: string, lineOffsets: number[], positions: number[]): string {
 	if (positions.length === 0) {
 		return `Found "${label}" at no locations.`;
